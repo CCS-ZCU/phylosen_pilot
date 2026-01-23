@@ -1,9 +1,8 @@
-#  [Repository title]
+#  PhyloSen
 
 ---
 ## Authors
-* [list of all contributors, with their institutional email and ORCID]
-
+* Vojtěch Kaše
 
 ## License
 CC-BY-SA 4.0, see attached License.md
@@ -11,7 +10,8 @@ CC-BY-SA 4.0, see attached License.md
 ---
 ## Description
 
-[What is the purpose of this repo? Is it related to any specific dataset or publication output?]
+This repo serves to collect some pilot experiments for the project "Phylogenies of Word Sense".
+
 
 ## Getting started
 
