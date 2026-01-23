@@ -1,5 +1,3 @@
-
-
 def process_kwic_tokens(
     kwic_tokens: list[dict],
     target_kwic_idx: list[int],
@@ -147,7 +145,16 @@ import numpy as np
 import inspect
 
 def encode_trunc(text: str, tokenizer, device="cpu", max_len=512):
-    kwargs = {"text": text, "return_tensors": "pt", "truncation": True, "max_length": max_len}
+    # Some HF tokenizers expose a sentinel "huge" model_max_length (e.g., ~1e30),
+    # which overflows in the fast tokenizer backend when used for truncation.
+    def _is_sane_len(x) -> bool:
+        return isinstance(x, int) and (0 < x <= 100_000)
+
+    # Sanitize incoming max_len (may be huge if caller passes tokenizer.model_max_length)
+    if not _is_sane_len(max_len):
+        max_len = 512
+
+    kwargs = {"text": text, "return_tensors": "pt", "truncation": True, "max_length": int(max_len)}
     if "add_special_tokens" in inspect.signature(tokenizer.__call__).parameters:
         kwargs["add_special_tokens"] = True
     result = tokenizer(**kwargs)
@@ -167,7 +174,42 @@ def hidden_phrase_embedding(
         return np.zeros(model.config.hidden_size, dtype=np.float32)
 
     start, end = target_piece_span
-    enc = encode_trunc(sent_str, tokenizer=tokenizer, device=device, max_len=getattr(tokenizer, "model_max_length", 512))
+
+    # Prefer a sane max length: clamp tokenizer.model_max_length if it's a sentinel huge int,
+    # and also respect model.config.max_position_embeddings when present.
+    tok_max = getattr(tokenizer, "model_max_length", 512)
+    cfg_max = getattr(getattr(model, "config", None), "max_position_embeddings", None)
+
+    def _is_sane_len(x) -> bool:
+        return isinstance(x, int) and (0 < x <= 100_000)
+
+    candidates = []
+    if _is_sane_len(tok_max):
+        candidates.append(tok_max)
+    if _is_sane_len(cfg_max):
+        candidates.append(cfg_max)
+    max_len = int(min(candidates)) if candidates else 512
+
+    # Encode (will move tensors to `device`), but also ensure the *model* is on the same device.
+    enc = encode_trunc(sent_str, tokenizer=tokenizer, device=device, max_len=max_len)
+
+    # --- device alignment (fixes "index on cuda, weight on cpu") ---
+    try:
+        model_dev = next(model.parameters()).device
+    except StopIteration:
+        model_dev = torch.device("cpu")
+    req_dev = torch.device(device) if device is not None else model_dev
+    if model_dev != req_dev:
+        model = model.to(req_dev)
+        model_dev = req_dev
+    if hasattr(enc, "to"):
+        enc = enc.to(model_dev)
+    else:
+        for k, v in list(enc.items()):
+            if torch.is_tensor(v):
+                enc[k] = v.to(model_dev)
+    # -------------------------------------------------------------
+
     enc["output_hidden_states"] = True
 
     with torch.no_grad():
@@ -290,5 +332,3 @@ def embed_emlap_instance(
         "sentence_text": instance.get("target_sentence_text"),
         "span_subwords": span,
     }
-
-
