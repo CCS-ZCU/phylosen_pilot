@@ -3,6 +3,7 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../GreLa" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../avarice" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../dictionary-emlap" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../labyrinth" vcs="Git" />
   </component>

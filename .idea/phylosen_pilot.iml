@@ -9,5 +9,6 @@
     <orderEntry type="module" module-name="GreLa" />
     <orderEntry type="module" module-name="labyrinth" />
     <orderEntry type="module" module-name="dictionary-emlap" />
+    <orderEntry type="module" module-name="avarice" />
   </component>
 </module>
