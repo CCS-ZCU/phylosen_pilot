@@ -1,0 +1,48 @@
+{
+  "passio": {
+    "emb_labert_wsd_l7": {
+      "accuracy": 0.5715715715715716,
+      "f1_macro": 0.46743631609220476
+    },
+    "emb_labert_wsd_l11": {
+      "accuracy": 0.6896896896896897,
+      "f1_macro": 0.6127552411342635
+    },
+    "emb_philberta_l7": {
+      "accuracy": 0.6166166166166166,
+      "f1_macro": 0.5389784981633555
+    },
+    "emb_philberta_l11": {
+      "accuracy": 0.6876876876876877,
+      "f1_macro": 0.6166827225883437
+    }
+  },
+  "pathos": {
+    "emb_labert_wsd_l7": {
+      "accuracy": 0.369,
+      "f1_macro": 0.30944459282135706
+    },
+    "emb_labert_wsd_l11": {
+      "accuracy": 0.346,
+      "f1_macro": 0.2749080108824179
+    },
+    "emb_philberta_l7": {
+      "accuracy": 0.54,
+      "f1_macro": 0.4390261170650541
+    },
+    "emb_philberta_l11": {
+      "accuracy": 0.587,
+      "f1_macro": 0.5338313517791613
+    }
+  },
+  "merged": {
+    "passio": {
+      "accuracy": 0.7117117117117117,
+      "f1_macro": 0.6208235528972624
+    },
+    "pathos": {
+      "accuracy": 0.549,
+      "f1_macro": 0.48570131153666196
+    }
+  }
+}

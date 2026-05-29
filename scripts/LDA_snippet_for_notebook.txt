@@ -1,0 +1,57 @@
+"""
+Copy these cells into 4_projections.ipynb after the imports section:
+"""
+
+# CELL 1: Import LDA tools
+from lda_projections import LDAProjection, compute_lda_projection, evaluate_lda_vs_unsupervised
+
+# CELL 2: Compare LDA vs unsupervised methods
+print("=== Comparing LDA vs Unsupervised Projections ===\n")
+
+X_passio = np.stack(passio_df["emb_philberta_l11"])
+y_passio = passio_df["class_llama3.3"].dropna().astype(int).values
+X_clean = X_passio[:len(y_passio)]
+
+print(f"Samples: {len(X_clean)}, Classes: {len(np.unique(y_passio))}\n")
+
+results = evaluate_lda_vs_unsupervised(X_clean, y_passio, REDUCTIONS)
+
+print("Silhouette Scores (higher is better):")
+for method, score in sorted(results.items(), key=lambda x: x[1], reverse=True):
+    print(f"  {method:20s}: {score:.4f}")
+
+# CELL 3: Visual comparison PCA vs LDA
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+
+# LDA
+X_lda, lda_model = compute_lda_projection(X_clean, y_passio)
+sil_lda = silhouette_score(X_lda, y_passio)
+
+# PCA
+pca = PCA(n_components=2, random_state=42)
+X_pca = pca.fit_transform(X_clean)
+sil_pca = silhouette_score(X_pca, y_passio)
+
+print(f"\nImprovement: {(sil_lda - sil_pca):.4f} ({(sil_lda - sil_pca)/abs(sil_pca)*100:.1f}%)")
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+axes[0].scatter(X_pca[:, 0], X_pca[:, 1], c=y_passio, cmap='tab10', s=20, alpha=0.6)
+axes[0].set_title(f"PCA (silhouette={sil_pca:.3f})", fontsize=12)
+axes[0].axis('off')
+
+axes[1].scatter(X_lda[:, 0], X_lda[:, 1], c=y_passio, cmap='tab10', s=20, alpha=0.6)
+axes[1].set_title(f"LDA (silhouette={sil_lda:.3f})", fontsize=12)
+axes[1].axis('off')
+
+plt.tight_layout()
+plt.show()
+
+# CELL 4: Inspect discriminative dimensions
+top_dims = lda_model.get_top_dimensions(k=10)
+importances = lda_model.get_feature_importances()
+
+print("\nTop 10 LDA-contributing embedding dimensions:")
+for idx in top_dims:
+    print(f"  Dimension {idx:3d}: importance={importances[idx]:.3f}")
