@@ -15,7 +15,9 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_har
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import umap
+from typing import Dict, Any, Optional, Tuple
 
 
 
@@ -507,3 +509,308 @@ def create_3d_temporal_projection(emb_array: np.ndarray,
 
     plt.tight_layout()
     return fig, ax
+
+
+# =============================================================================
+# Century-Based Sense Trajectories (3D Visualization)
+# =============================================================================
+
+def compute_century_trajectories_data(
+    df: pd.DataFrame,
+    X: np.ndarray,
+    y: np.ndarray,
+    lda_model,
+    date_column: str = 'random_date',
+    min_samples: int = 5,
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Compute trajectory data for all senses across centuries.
+    
+    Parameters
+    ----------
+    df : DataFrame with date_column and label column
+    X : Embedding array aligned with df (n_samples, n_features)
+    y : Label array aligned with df (n_samples,)
+    lda_model : Fitted LDAProjection model
+    date_column : Column name containing year values
+    min_samples : Minimum samples per century to compute valid centroid
+    
+    Returns
+    -------
+    dict {sense_label: {
+        'centuries': [101, 201, 301, ...],      # sorted century starts  
+        'x': [x1, x2, x3, ...],                  # LD1 positions
+        'y': [y1, y2, y3, ...],                  # LD2 positions
+        'z': [z1, z2, z3, ...],                  # century values (Z axis)
+        'marker_sizes': [s1, s2, s3, ...],       # log-scaled sizes
+        'sample_counts': [n1, n2, n3, ...],      # raw counts per century
+        'is_valid': [True, False, ...]           # True if >= min_samples
+    }}
+    
+    Notes
+    -----
+    - Century calculation: (year // 100) * 100 + 1 (e.g., year 150 → 101)
+    - Uses pre-fitted LDA model to project centroids
+    - Only includes centuries with >= min_samples attestations
+    """
+    
+    def year_to_century_midpoint(year):
+        """
+        Convert year to century midpoint.
+        
+        BCE centuries: 8th c. BCE (-800 to -701) → -750
+        CE centuries:  2nd c. CE (101 to 200) → 150
+        
+        Year 0 is omitted (returns None).
+        """
+        if pd.isna(year):
+            return None
+        
+        year = int(year)
+        if year == 0:
+            return None
+        
+        if year < 0:  # BCE
+            # e.g., -750 → 8th c. BCE (-800 to -701) → midpoint -750
+            # e.g., -700 → 7th c. BCE (-700 to -601) → midpoint -650
+            century_num = (-year + 99) // 100
+            midpoint = -(century_num * 100 - 50)
+        else:  # CE
+            # e.g., 150 → 2nd c. CE (101 to 200) → midpoint 150
+            # e.g., 50 → 1st c. CE (1 to 100) → midpoint 50
+            century_num = (year - 1) // 100 + 1
+            midpoint = (century_num - 1) * 100 + 50
+        
+        return midpoint
+    
+    # Ensure X, y, and df are aligned by using min length
+    n_min = min(len(df), len(X), len(y))
+    
+    # Build aligned arrays without index confusion
+    centuries_list = []
+    valid_X = []
+    valid_y = []
+    
+    for idx in range(n_min):
+        year = df[date_column].iloc[idx]
+        midpoint = year_to_century_midpoint(year)
+        if midpoint is not None:
+            centuries_list.append(midpoint)
+            valid_X.append(X[idx])
+            valid_y.append(y[idx])
+    
+    if len(valid_X) == 0:
+        return {}
+    
+    centuries_arr = np.array(centuries_list)
+    X_valid = np.array(valid_X)
+    y_valid = np.array(valid_y)
+    
+    trajectories = {}
+    
+    for label in np.unique(y_valid):
+        label_mask = y_valid == label
+        label_centuries = centuries_arr[label_mask]
+        label_X = X_valid[label_mask]
+        
+        centuries = []
+        x_vals = []
+        y_vals = []
+        z_vals = []
+        marker_sizes = []
+        sample_counts = []
+        is_valid = []
+        
+        for midpoint in np.sort(np.unique(label_centuries)):
+            century_mask = label_centuries == midpoint
+            count = np.sum(century_mask)
+            X_century = label_X[century_mask]
+            
+            centroid = X_century.mean(axis=0)
+            centroid_2d = lda_model.transform(centroid.reshape(1, -1))[0]
+            
+            centuries.append(int(midpoint))
+            x_vals.append(float(centroid_2d[0]))
+            y_vals.append(float(centroid_2d[1]))
+            z_vals.append(int(midpoint))  # Z-axis uses midpoint as position
+            sample_counts.append(count)
+            is_valid.append(count >= min_samples)
+            
+            # Log10 scaling for marker size
+            size = 50 + 100 * np.log10(max(count, 1))
+            marker_sizes.append(float(size))
+        
+        trajectories[int(label)] = {
+            'centuries': centuries,
+            'x': x_vals,
+            'y': y_vals,
+            'z': z_vals,
+            'marker_sizes': marker_sizes,
+            'sample_counts': sample_counts,
+            'is_valid': is_valid,
+        }
+    
+    return trajectories
+
+
+def plot_3d_century_trajectories(
+    trajectory_data: Dict[int, Dict[str, Any]],
+    label_names: Optional[Dict[int, str]] = None,
+    palette: Optional[Dict[int, str]] = None,
+    figsize: Tuple[int, int] = (14, 10),
+    interpolate_gaps: bool = True,
+    max_gap_centuries: int = 2,
+    title: str = "Sense Evolution Across Centuries",
+) -> plt.Figure:
+    """
+    Render 3D trajectory plot from pre-computed century trajectory data.
+    
+    Parameters
+    ----------
+    trajectory_data : Output from compute_century_trajectories_data
+    label_names : {sense_label: display_name} mapping (e.g., from llmprompt_passio.LABEL_MAP)
+    palette : {sense_label: color} mapping
+    figsize : Figure size
+    interpolate_gaps : Whether to connect gaps with gray lines
+    max_gap_centuries : Max consecutive missing centuries to interpolate
+    title : Plot title
+    
+    Returns
+    -------
+    fig : matplotlib Figure with 3D trajectory plot
+    
+    Notes
+    -----
+    - X,Y = LDA space, Z = time (century midpoints: -750, -650, ..., 50, 150, ...)
+    - Marker size encodes sample count (log-scaled)
+    - Interpolated segments shown as gray dashed lines
+    - All senses shown in single plot with legend
+    """
+    
+    if palette is None:
+        n_classes = len(trajectory_data)
+        palette = create_label_palette(n_classes)
+    
+    if label_names is None:
+        label_names = {label: f"Sense {label}" for label in trajectory_data.keys()}
+    
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Track all data for legend
+    legend_handles = []
+    
+    # Determine Z-axis range for proper scaling
+    all_z = []
+    for data in trajectory_data.values():
+        all_z.extend(data['z'])
+    
+    for label, data in sorted(trajectory_data.items()):
+        centuries = data['centuries']
+        x = data['x']
+        y = data['y']
+        z = data['z']
+        sizes = data['marker_sizes']
+        is_valid = data['is_valid']
+        
+        if len(centuries) < 2:
+            continue
+        
+        color = palette.get(label, '#cccccc')
+        label_display = label_names.get(label, f"Sense {label}")
+        
+        # Plot the trajectory line
+        if interpolate_gaps:
+            # Find gaps and interpolate
+            valid_indices = np.where(is_valid)[0]
+            
+            if len(valid_indices) > 1:
+                # Draw segments between valid points
+                for i in range(len(valid_indices) - 1):
+                    idx1, idx2 = valid_indices[i], valid_indices[i + 1]
+                    
+                    # Check gap size in terms of century steps
+                    z_gap = abs(z[idx2] - z[idx1])
+                    # Each century step is 100 years, so gap_centuries = z_gap / 100
+                    gap_centuries = z_gap // 100
+                    
+                    if gap_centuries <= max_gap_centuries + 1:
+                        # Connect these points with solid line
+                        ax.plot(
+                            [x[idx1], x[idx2]],
+                            [y[idx1], y[idx2]],
+                            [z[idx1], z[idx2]],
+                            color=color,
+                            alpha=1.0,
+                            linewidth=1.5
+                        )
+                    elif gap_centuries <= max_gap_centuries * 2:
+                        # Interpolate with gray dashed line
+                        ax.plot(
+                            [x[idx1], x[idx2]],
+                            [y[idx1], y[idx2]],
+                            [z[idx1], z[idx2]],
+                            color='gray',
+                            alpha=0.5,
+                            linewidth=1.0,
+                            linestyle='--'
+                        )
+        else:
+            # Just connect adjacent valid points
+            valid_indices = np.where(is_valid)[0]
+            for i in range(len(valid_indices) - 1):
+                idx1, idx2 = valid_indices[i], valid_indices[i + 1]
+                ax.plot(
+                    [x[idx1], x[idx2]],
+                    [y[idx1], y[idx2]],
+                    [z[idx1], z[idx2]],
+                    color=color,
+                    alpha=1.0,
+                    linewidth=1.5
+                )
+        
+        # Plot markers for each valid point
+        valid_x = [x[i] for i, v in enumerate(is_valid) if v]
+        valid_y = [y[i] for i, v in enumerate(is_valid) if v]
+        valid_z = [z[i] for i, v in enumerate(is_valid) if v]
+        valid_sizes = [sizes[i] for i, v in enumerate(is_valid) if v]
+        
+        if valid_x:
+            scatter = ax.scatter(
+                valid_x, valid_y, valid_z,
+                c=[color] * len(valid_x),
+                s=valid_sizes,
+                alpha=0.8,
+                edgecolors='white',
+                linewidths=0.5
+            )
+            
+            # Create legend handle (only once per label)
+            if not any(h.get_label() == label_display for h in legend_handles):
+                legend_handles.append(
+                    Line2D([0], [0], marker='o', color='w', 
+                          label=label_display,
+                          markerfacecolor=color, markersize=8)
+                )
+    
+    # Set labels and title
+    ax.set_xlabel('LD1 (Discriminant Axis 1)', fontsize=11)
+    ax.set_ylabel('LD2 (Discriminant Axis 2)', fontsize=11)
+    ax.set_zlabel('Century (midpoint)', fontsize=11)
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    # Set Z-axis limits with some padding
+    if all_z:
+        z_min, z_max = min(all_z), max(all_z)
+        z_padding = 50  # Half a century
+        ax.set_zlim(z_min - z_padding, z_max + z_padding)
+    
+    # Legend
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc='upper left', fontsize=9)
+    
+    # Adjust view angle for better visualization
+    ax.view_init(elev=20, azim=45)
+    
+    plt.tight_layout()
+    return fig
