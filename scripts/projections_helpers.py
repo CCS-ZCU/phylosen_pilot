@@ -814,3 +814,116 @@ def plot_3d_century_trajectories(
     
     plt.tight_layout()
     return fig
+
+
+# =============================================================================
+# 3D LDA + Temporal Scatter Plot
+# =============================================================================
+
+def plot_3d_lda_temporal(X_lda: np.ndarray,
+                         dates: np.ndarray,
+                         labels: np.ndarray,
+                         label_names: Optional[Dict[int, str]] = None,
+                         palette: Optional[Dict[int, str]] = None,
+                         title: str = "",
+                         figsize: Tuple[int, int] = (12, 9)) -> Tuple[plt.Figure, plt.Axes]:
+    """
+    Create 3D scatter plot with LDA projection (X,Y) and time (Z-axis).
+    
+    Parameters
+    ----------
+    X_lda : np.ndarray of shape (n, 2)
+        2D LDA projection coordinates (LD1, LD2)
+    dates : array-like of shape (n,)
+        Random dates from tempun.model_date
+    labels : array-like of shape (n,)
+        Integer sense labels
+    label_names : dict, optional
+        Label ID to display name mapping {label_id: "Sense Name"}
+    palette : dict, optional
+        Color mapping {label_id: hex_color}
+    title : str
+        Plot title
+    figsize : tuple
+        Figure size (width, height)
+        
+    Returns
+    -------
+    fig, ax : matplotlib 3D figure and axes
+        
+    Notes
+    -----
+    - X, Y = LDA discriminant axes (LD1, LD2)
+    - Z = time (random_date values in years)
+    - Points colored by sense label using provided or auto-generated palette
+    """
+    
+    # Validate inputs
+    if X_lda.shape[1] != 2:
+        raise ValueError(f"X_lda must have 2 columns, got {X_lda.shape[1]}")
+    if len(X_lda) != len(dates) or len(X_lda) != len(labels):
+        raise ValueError(f"Input lengths mismatch: X_lda={len(X_lda)}, dates={len(dates)}, labels={len(labels)}")
+    
+    n_classes = len(np.unique(labels))
+    
+    # Generate palette if not provided
+    if palette is None:
+        palette = create_label_palette(n_classes)
+    
+    # Generate label names if not provided
+    if label_names is None:
+        label_names = {i: f"Sense {i}" for i in range(n_classes)}
+    
+    # Convert dates to numpy array for plotting
+    dates_arr = np.asarray(dates)
+    
+    # Get colors for each point based on labels
+    colors = [palette.get(l, "#cccccc") for l in labels]
+    
+    # Create figure and 3D axis
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Create scatter plot
+    scatter = ax.scatter(
+        X_lda[:, 0],           # LD1
+        X_lda[:, 1],           # LD2
+        dates_arr,             # Z = time (years)
+        c=colors,
+        s=30,
+        alpha=0.6,
+        edgecolors='white',
+        linewidths=0.5
+    )
+    
+    # Set labels and title
+    ax.set_xlabel('LD1 (Discriminant Axis 1)', fontsize=11)
+    ax.set_ylabel('LD2 (Discriminant Axis 2)', fontsize=11)
+    ax.set_zlabel('Year (random_date)', fontsize=11)
+    
+    if title:
+        ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    # Set Z-axis limits with padding for temporal axis
+    z_min, z_max = dates_arr.min(), dates_arr.max()
+    z_padding = (z_max - z_min) * 0.05  # 5% padding
+    ax.set_zlim(z_min - z_padding, z_max + z_padding)
+    
+    # Create legend
+    legend_handles = [
+        Line2D([0], [0], marker='o', color='w',
+               label=label_names.get(lid, f"Sense {lid}"),
+               markerfacecolor=palette.get(lid, "#cccccc"),
+               markersize=8)
+        for lid in sorted(np.unique(labels))
+    ]
+    
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc='upper left', fontsize=9, 
+                  title="Sense Classes", title_fontsize=10)
+    
+    # Adjust view angle for better 3D visualization
+    ax.view_init(elev=25, azim=45)
+    
+    plt.tight_layout()
+    return fig, ax
