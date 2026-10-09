@@ -1,0 +1,20 @@
+# Neutral MCP registry. Clients keep their native MCP configuration for now.
+version: 1
+servers:
+  jupyter:
+    transport: http
+    url: http://127.0.0.1:4040/mcp
+    scope: global
+  jupyter-kernel:
+    transport: stdio
+    command: python
+    args:
+      # Existing implementation; migrate only after all clients are verified.
+      - /home/jupyter-vojta/.claude/mcp-servers/jupyter-kernel/server.py
+    scope: global
+  zotero:
+    transport: stdio
+    command: /home/jupyter-vojta/.local/zotero-mcp-venv/bin/zotero-mcp
+    env:
+      ZOTERO_LOCAL: "true"
+    scope: global
