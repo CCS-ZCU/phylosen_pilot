@@ -16,14 +16,16 @@ Reply with one numeric label only.
 
 0 = emotion or appetite, such as desire, anger, fear, or grief
 1 = bodily condition or disturbance, such as disease, injury, or inflammation
-2 = technical property, accident, modification, or passive state,
-    including philosophical, scientific, and grammatical uses
+2 = property, non-emotional state, modification, or being acted upon,
+    including philosophical, physical, and grammatical uses
 3 = suffering, ordeal, misfortune, or an event undergone,
     including Christ’s Passion and the suffering or death of martyrs
 
 Classify only the marked occurrence, not the passage’s topic.
 Distinguish a bodily condition (1) from the experience of suffering (3).
+Physical modifications of nonliving things belong to 2, not 1.
 Emotions belong to 0 even in philosophical or Christian discussion.
+A state of the soul is not necessarily an emotion.
 """.strip()
 
 FEWSHOT = """
@@ -37,6 +39,14 @@ Label: 1
 
 Passage:
 <target>πάθος</target> λέγεται ἡ ποιότης, καθ᾿ ἣν ἀλλοιοῦσθαι ἐνδέχεται.
+Label: 2
+
+Passage:
+ἡ χρυσόκολλα συνίσταται · ἐν μέσῃ δὲ τῇ λίμνῃ τὸ <target>πάθος</target> συμβαίνειν εὔλογον.
+Label: 2
+
+Passage:
+τίνι οὖν ἀπεικάσωμεν τῶν ἐν τῷ σώματι τὸ ἐν ψυχῇ <target>πάθος</target> ὃ κέκληται ἄγνοια;
 Label: 2
 
 Passage:

@@ -25,7 +25,8 @@ Reply with one numeric label only.
 
 Classify only the marked occurrence, not the passage’s topic.
 Distinguish a martyr’s suffering (0) from its written account (4).
-Emotions belong to 5 even in philosophical discussion or negated claims.
+Emotions belong to 5 even in philosophical discussion or negated claims. 
+Christ’s bodily suffering belongs to 3 even in philosophical discussion.
 """.strip()
 
 FEWSHOT = """
