@@ -325,7 +325,9 @@ def plot_single_2d_projection(X_2d: tuple[np.ndarray, np.ndarray],
                                label_names: dict[int, str],
                                palette: dict[int, str] | None = None,
                                title: str = "",
-                               figsize: tuple[int, int] = (10, 10)) -> tuple[plt.Figure, plt.Axes]:
+                               figsize: tuple[int, int] = (10, 10),
+                               ax: plt.Axes | None = None,
+                               show_legend: bool = True) -> tuple[plt.Figure, plt.Axes]:
     """
     Create a scatter plot of 2D projection colored by labels.
 
@@ -342,7 +344,13 @@ def plot_single_2d_projection(X_2d: tuple[np.ndarray, np.ndarray],
     title : str
         Plot title
     figsize : tuple
-        Figure size
+        Figure size (only used when ``ax`` is None)
+    ax : matplotlib Axes, optional
+        Existing axes to draw into. When None, a new standalone figure is
+        created (original behaviour). When provided, ``figsize`` is ignored.
+    show_legend : bool
+        Whether to draw the figure-level legend below the axes. Set to False
+        when composing this panel into a shared figure with a single legend.
 
     Returns
     -------
@@ -356,21 +364,27 @@ def plot_single_2d_projection(X_2d: tuple[np.ndarray, np.ndarray],
 
     colors = [palette.get(l, "#cccccc") for l in labels]
 
-    fig, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
     ax.scatter(x, y, c=colors, s=8, alpha=0.6)
 
     if title:
         ax.set_title(title, fontsize=14)
     ax.axis("off")
 
-    # Legend
-    handles = [
-        Line2D([0], [0], marker='o', linestyle='', color=palette[lid], label=name, markersize=8)
-        for lid, name in sorted(label_names.items())
-    ]
-    fig.legend(handles=handles, ncol=min(5, len(handles)),
-               bbox_to_anchor=(0.5, -0.03), loc="upper center")
-    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    if show_legend:
+        # Legend
+        handles = [
+            Line2D([0], [0], marker='o', linestyle='', color=palette[lid], label=name, markersize=8)
+            for lid, name in sorted(label_names.items())
+        ]
+        fig.legend(handles=handles, ncol=min(5, len(handles)),
+                   bbox_to_anchor=(0.5, -0.03), loc="upper center")
+
+    if ax is None:
+        plt.tight_layout(rect=[0, 0.05, 1, 1])
 
     return fig, ax
 
@@ -661,6 +675,10 @@ def plot_3d_century_trajectories(
     interpolate_gaps: bool = True,
     max_gap_centuries: int = 2,
     title: str = "Sense Evolution Across Centuries",
+    ax=None,
+    show_legend: bool = True,
+    elev: float = 20,
+    azim: float = 45,
 ) -> plt.Figure:
     """
     Render 3D trajectory plot from pre-computed century trajectory data.
@@ -670,10 +688,18 @@ def plot_3d_century_trajectories(
     trajectory_data : Output from compute_century_trajectories_data
     label_names : {sense_label: display_name} mapping (e.g., from llmprompt_passio.LABEL_MAP)
     palette : {sense_label: color} mapping
-    figsize : Figure size
+    figsize : Figure size (only used when ``ax`` is None)
     interpolate_gaps : Whether to connect gaps with gray lines
     max_gap_centuries : Max consecutive missing centuries to interpolate
     title : Plot title
+    ax : matplotlib 3D Axes, optional
+        Existing 3D axes to draw into. When None, a new standalone figure is
+        created (original behaviour). When provided, ``figsize`` is ignored.
+    show_legend : bool
+        Whether to draw the axes legend. Set to False when composing this
+        panel into a shared figure with a single legend.
+    elev, azim : float
+        Elevation and azimuth view angles passed to ``ax.view_init``.
     
     Returns
     -------
@@ -694,8 +720,13 @@ def plot_3d_century_trajectories(
     if label_names is None:
         label_names = {label: f"Sense {label}" for label in trajectory_data.keys()}
     
-    fig = plt.figure(figsize=figsize)
-    ax = fig.add_subplot(111, projection='3d')
+    if ax is None:
+        ax_owned = True
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        ax_owned = False
+        fig = ax.figure
     
     # Track all data for legend
     legend_handles = []
@@ -806,13 +837,14 @@ def plot_3d_century_trajectories(
         ax.set_zlim(z_min - z_padding, z_max + z_padding)
     
     # Legend
-    if legend_handles:
+    if show_legend and legend_handles:
         ax.legend(handles=legend_handles, loc='upper left', fontsize=9)
     
     # Adjust view angle for better visualization
-    ax.view_init(elev=20, azim=45)
+    ax.view_init(elev=elev, azim=azim)
     
-    plt.tight_layout()
+    if ax_owned:
+        plt.tight_layout()
     return fig
 
 
@@ -826,14 +858,24 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
                          label_names: Optional[Dict[int, str]] = None,
                          palette: Optional[Dict[int, str]] = None,
                          title: str = "",
-                         figsize: Tuple[int, int] = (12, 9)) -> Tuple[plt.Figure, plt.Axes]:
+                         figsize: Tuple[int, int] = (12, 9),
+                         ax=None,
+                         show_legend: bool = True,
+                         elev: float = 25,
+                         azim: float = 45,
+                         xlabel: str = 'LD1 (Discriminant Axis 1)',
+                         ylabel: str = 'LD2 (Discriminant Axis 2)',
+                         zlabel: str = 'Year (random_date)') -> Tuple[plt.Figure, plt.Axes]:
     """
-    Create 3D scatter plot with LDA projection (X,Y) and time (Z-axis).
+    Create 3D scatter plot with a 2D projection (X,Y) and time (Z-axis).
+    
+    Despite the name, this works for any 2D projection: pass LDA coordinates for
+    a supervised view, or PCA+t-SNE / UMAP coordinates for an unsupervised one.
     
     Parameters
     ----------
     X_lda : np.ndarray of shape (n, 2)
-        2D LDA projection coordinates (LD1, LD2)
+        2D projection coordinates (e.g. LD1, LD2 or PCA+t-SNE dims)
     dates : array-like of shape (n,)
         Random dates from tempun.model_date
     labels : array-like of shape (n,)
@@ -845,7 +887,17 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
     title : str
         Plot title
     figsize : tuple
-        Figure size (width, height)
+        Figure size (width, height); only used when ``ax`` is None
+    ax : matplotlib 3D Axes, optional
+        Existing 3D axes to draw into. When None, a new standalone figure is
+        created (original behaviour). When provided, ``figsize`` is ignored.
+    show_legend : bool
+        Whether to draw the axes legend. Set to False when composing this panel
+        into a shared figure with a single legend.
+    elev, azim : float
+        Elevation and azimuth view angles passed to ``ax.view_init``.
+    xlabel, ylabel, zlabel : str
+        Axis labels.
         
     Returns
     -------
@@ -853,7 +905,7 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
         
     Notes
     -----
-    - X, Y = LDA discriminant axes (LD1, LD2)
+    - X, Y = the supplied 2D projection axes
     - Z = time (random_date values in years)
     - Points colored by sense label using provided or auto-generated palette
     """
@@ -881,13 +933,18 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
     colors = [palette.get(l, "#cccccc") for l in labels]
     
     # Create figure and 3D axis
-    fig = plt.figure(figsize=figsize)
-    ax = fig.add_subplot(111, projection='3d')
+    if ax is None:
+        ax_owned = True
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        ax_owned = False
+        fig = ax.figure
     
     # Create scatter plot
     scatter = ax.scatter(
-        X_lda[:, 0],           # LD1
-        X_lda[:, 1],           # LD2
+        X_lda[:, 0],           # projection dim 1
+        X_lda[:, 1],           # projection dim 2
         dates_arr,             # Z = time (years)
         c=colors,
         s=30,
@@ -897,9 +954,9 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
     )
     
     # Set labels and title
-    ax.set_xlabel('LD1 (Discriminant Axis 1)', fontsize=11)
-    ax.set_ylabel('LD2 (Discriminant Axis 2)', fontsize=11)
-    ax.set_zlabel('Year (random_date)', fontsize=11)
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
+    ax.set_zlabel(zlabel, fontsize=11)
     
     if title:
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
@@ -918,12 +975,13 @@ def plot_3d_lda_temporal(X_lda: np.ndarray,
         for lid in sorted(np.unique(labels))
     ]
     
-    if legend_handles:
+    if show_legend and legend_handles:
         ax.legend(handles=legend_handles, loc='upper left', fontsize=9, 
                   title="Sense Classes", title_fontsize=10)
     
     # Adjust view angle for better 3D visualization
-    ax.view_init(elev=25, azim=45)
+    ax.view_init(elev=elev, azim=azim)
     
-    plt.tight_layout()
+    if ax_owned:
+        plt.tight_layout()
     return fig, ax
