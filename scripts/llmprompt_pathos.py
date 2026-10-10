@@ -1,8 +1,9 @@
 LABEL_MAP = {
-    0: "affect_emotion",
-    1: "bodily_affection",
-    2: "property_state_modification",
-    3: "suffering_undergoing_event",
+    0: "uncertain",
+    1: "affect_emotion",
+    2: "disease_pathological_condition",
+    3: "property_state_modification",
+    4: "suffering_undergoing_event",
 }
 
 LABEL2ID = {v: k for k, v in LABEL_MAP.items()}
@@ -10,53 +11,41 @@ LABEL2ID = {v: k for k, v in LABEL_MAP.items()}
 SYSTEM = """
 You are a specialist in Ancient Greek philology.
 
-Classify the meaning of the word marked by <target>...</target>.
-Use the raw passage as evidence and filtered lemmata as support.
+Classify the meaning of “πάθος” marked by <target>...</target>.
+Use the raw passage as primary evidence and filtered lemmata as support.
 Reply with one numeric label only.
 
-0 = emotion or appetite, such as desire, anger, fear, or grief
-1 = bodily condition or disturbance, such as disease, injury, or inflammation
-2 = property, non-emotional state, modification, or being acted upon,
-    including philosophical, physical, and grammatical uses
-3 = suffering, ordeal, misfortune, or an event undergone,
-    including Christ’s Passion and the suffering or death of martyrs
+0 = uncertain
+    The available context does not establish the intended meaning,
+    two or more labels remain comparably plausible, or the marked word
+    is not a form of “πάθος”.
 
-Classify only the marked occurrence, not the passage’s topic.
-Distinguish a bodily condition (1) from the experience of suffering (3).
-Physical modifications of nonliving things belong to 2, not 1.
-Emotions belong to 0 even in philosophical or Christian discussion.
-A state of the soul is not necessarily an emotion.
+1 = affect_emotion
+    An emotional or appetitive response, feeling, desire, or aversion.
+
+2 = disease_pathological_condition
+    An illness, injury, or bodily dysfunction. The word denotes
+    the pathological condition itself.
+
+3 = property_state_modification
+    An attribute belonging to a subject, or an alteration or influence
+    received by it. Includes non-emotional sensory and cognitive
+    processes and modifications of linguistic forms.
+
+4 = suffering_undergoing_event
+    Something that happens to or is endured by a person, group,
+    or thing: an event, experience, ordeal, misfortune, or suffering.
+    Includes Christ’s Passion and the suffering or death of martyrs.
+
+Classify the meaning of the marked occurrence, not the passage’s topic.
+Choose 1–4 when the context supports one meaning clearly over the others;
+absolute certainty or an explicit definition is not required.
+Choose 0 when deciding would require guessing missing context or resolving
+an ambiguity that the passage leaves open. Do not use 0 merely because
+the wording is difficult or another interpretation is theoretically possible.
 """.strip()
 
 FEWSHOT = """
-Passage:
-μὴ ἐν <target>πάθει</target> ἐπιθυμίας, καθάπερ τὰ ἔθνη τὰ μὴ εἰδότα τὸν Θεόν.
-Label: 0
-
-Passage:
-ἐπὶ δὲ μεγάλῳ <target>πάθεϊ</target>, ὁκοῖον ἡ φλεγμονή.
-Label: 1
-
-Passage:
-<target>πάθος</target> λέγεται ἡ ποιότης, καθ᾿ ἣν ἀλλοιοῦσθαι ἐνδέχεται.
-Label: 2
-
-Passage:
-ἡ χρυσόκολλα συνίσταται · ἐν μέσῃ δὲ τῇ λίμνῃ τὸ <target>πάθος</target> συμβαίνειν εὔλογον.
-Label: 2
-
-Passage:
-τίνι οὖν ἀπεικάσωμεν τῶν ἐν τῷ σώματι τὸ ἐν ψυχῇ <target>πάθος</target> ὃ κέκληται ἄγνοια;
-Label: 2
-
-Passage:
-τὸ <target>πάθος</target> τῆς πόλεως χρήμασιν ὁ βασιλεὺς παρεμυθήσατο.
-Label: 3
-
-Passage:
-διὰ γὰρ τοῦ <target>Πάθους</target> τοῦ κυρίου καὶ τῆς ἀναστάσεως αὐτοῦ.
-Label: 3
-
 Passage:
 {0}
 Label:

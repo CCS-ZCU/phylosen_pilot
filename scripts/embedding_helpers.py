@@ -140,9 +140,11 @@ def augment_with_subwords_span(tokens, target_idx, tokenizer):
 
     return sent_str, sp_tokens, aug_tokens, target_piece_span
 
-import torch
-import numpy as np
+import gc
 import inspect
+
+import numpy as np
+import torch
 
 def encode_trunc(text: str, tokenizer, device="cpu", max_len=512):
     # Some HF tokenizers expose a sentinel "huge" model_max_length (e.g., ~1e30),
@@ -332,3 +334,64 @@ def embed_emlap_instance(
         "sentence_text": instance.get("target_sentence_text"),
         "span_subwords": span,
     }
+
+
+# ---------------------------------------------------------------------------
+# GPU lifecycle helpers
+#
+# `hidden_phrase_embedding` moves the model to `device` on demand and never
+# moves it back. Iterating over several encoders therefore leaves *every* model
+# resident on the GPU, which is the usual cause of "CUDA out of memory" here.
+# Use `gpu_mem_report()` around a run and `offload(model)` between encoders.
+# ---------------------------------------------------------------------------
+
+def gpu_mem_report(tag: str = "") -> dict:
+    """Print (and return) CUDA memory usage in GiB.
+
+    ``free``/``total`` come from the driver for the *whole* GPU (they include
+    memory held by other processes); ``alloc``/``reserved`` are this process's
+    PyTorch allocator numbers. A large gap between driver ``free`` and torch
+    ``alloc`` means some other kernel/process is hogging the card.
+    """
+    info: dict = {"tag": tag, "cuda": torch.cuda.is_available()}
+    if not torch.cuda.is_available():
+        print(f"[{tag}] CUDA not available")
+        return info
+
+    free, total = torch.cuda.mem_get_info()
+    info.update(
+        free_gib=free / 1024**3,
+        total_gib=total / 1024**3,
+        alloc_gib=torch.cuda.memory_allocated() / 1024**3,
+        reserved_gib=torch.cuda.memory_reserved() / 1024**3,
+    )
+    print(
+        f"[{tag}] free={info['free_gib']:.2f}/{info['total_gib']:.2f} GiB  "
+        f"torch_alloc={info['alloc_gib']:.2f} GiB  "
+        f"torch_reserved={info['reserved_gib']:.2f} GiB"
+    )
+    return info
+
+
+def empty_cache() -> None:
+    """Collect garbage and return unused cached blocks to the CUDA driver."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def offload(model, *, verbose: bool = False):
+    """Move ``model`` back to CPU and release the CUDA blocks it held.
+
+    Safe to call between encoders: ``hidden_phrase_embedding`` puts the model
+    back on the requested device automatically on the next call. Returns the
+    model so it can be used inline.
+    """
+    try:
+        model.to("cpu")
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"offload: could not move model to CPU: {exc}")
+    empty_cache()
+    if verbose:
+        gpu_mem_report("after offload")
+    return model
