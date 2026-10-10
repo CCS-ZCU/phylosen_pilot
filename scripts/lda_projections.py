@@ -217,6 +217,85 @@ def compute_shared_lda_projection(
     return projected, shared
 
 
+@dataclass
+class WithinLexemeSharedProjection:
+    """One linear map assembled from independent within-lexeme LDA models."""
+
+    directions_: np.ndarray
+    rotation_: np.ndarray
+    origin_: np.ndarray
+    local_models_: Dict[str, LinearDiscriminantAnalysis]
+    explained_variance_ratio_: np.ndarray
+
+    def transform_discriminant_space(self, X: np.ndarray) -> np.ndarray:
+        """Retain every combined discriminant score, before the display reduction."""
+        return (np.asarray(X, dtype=float) - self.origin_) @ self.directions_
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return self.transform_discriminant_space(X) @ self.rotation_
+
+
+def compute_within_lexeme_shared_projection(
+    embeddings: Dict[str, np.ndarray],
+    labels: Dict[str, np.ndarray],
+    n_components: int = 2,
+) -> Tuple[Dict[str, np.ndarray], WithinLexemeSharedProjection]:
+    """Combine local LDA directions without cross-lexeme sense correspondences.
+
+    Fit each lexeme's LDA on its own inventory. Concatenate its full discriminant
+    loading matrix with those of the other lexemes, normalizing each matrix by
+    its Frobenius norm to give each lexeme equal loading energy. Every input is
+    then scored against ALL directions, irrespective of which word it contains.
+
+    For display, diagonalize the equally weighted within-lexeme covariance of
+    these common scores. This is an unsupervised rotation/reduction of the
+    supervised common scores: it avoids choosing display axes merely because
+    word means differ. Lexeme means are NOT removed at transformation time;
+    both words share one origin and one linear map. Residual language offsets
+    can remain, and proximity is not a validated bilingual alignment.
+    """
+    if len(embeddings) < 2 or set(embeddings) != set(labels):
+        raise ValueError("Provide matching embeddings and labels for at least two lexemes.")
+    matrices, local_models, blocks = {}, {}, []
+    feature_count = None
+    for term, values in embeddings.items():
+        X, y = np.asarray(values, dtype=float), np.asarray(labels[term])
+        if (X.ndim != 2 or y.ndim != 1 or len(X) != len(y) or not len(X)
+                or not np.isfinite(X).all()):
+            raise ValueError(f"{term}: provide a finite matrix aligned with 1D labels.")
+        if feature_count is not None and X.shape[1] != feature_count:
+            raise ValueError("All inputs must use the same embedding dimensions and order.")
+        feature_count = X.shape[1]
+        classes, counts = np.unique(y, return_counts=True)
+        if len(classes) < 2 or np.any(counts < 2) or len(X) <= len(classes):
+            raise ValueError(f"{term}: need two senses, two rows per sense and residual observations.")
+        local = LinearDiscriminantAnalysis(solver="svd").fit(X, y)
+        directions = local.scalings_[:, :len(local.explained_variance_ratio_)]
+        energy = np.linalg.norm(directions)
+        if not np.isfinite(energy) or energy == 0:
+            raise ValueError(f"{term}: no usable discriminant directions.")
+        blocks.append(directions / energy)
+        matrices[term], local_models[term] = X, local
+    basis = np.concatenate(blocks, axis=1)
+    covariance = np.zeros((basis.shape[1], basis.shape[1]))
+    for X in matrices.values():
+        scores = (X - X.mean(axis=0)) @ basis
+        covariance += scores.T @ scores / (len(X) - 1) / len(matrices)
+    values, vectors = np.linalg.eigh(covariance)
+    order = np.argsort(values)[::-1]
+    values, vectors = np.maximum(values[order], 0), vectors[:, order]
+    available = np.sum(values > values[0] * 1e-12) if values[0] > 0 else 0
+    if (not isinstance(n_components, (int, np.integer)) or n_components < 1
+            or n_components > available):
+        raise ValueError(f"n_components must be between 1 and {available}.")
+    origin = np.mean([X.mean(axis=0) for X in matrices.values()], axis=0)
+    shared = WithinLexemeSharedProjection(
+        directions_=basis, rotation_=vectors[:, :n_components], origin_=origin,
+        local_models_=local_models, explained_variance_ratio_=values / values.sum(),
+    )
+    return {term: shared.transform(X) for term, X in matrices.items()}, shared
+
+
 def evaluate_lda_vs_unsupervised(
     X: np.ndarray, 
     y: np.ndarray,
