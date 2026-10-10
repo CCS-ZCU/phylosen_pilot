@@ -4,3 +4,6 @@
 /CLAUDE.md
 /MEMORY.md
 .claude/
+# Agent Square source snapshot now lives at ~/.agents/agent-square-src (not project code)
+/.agent-square-src/
+__pycache__/
