@@ -1,6 +1,6 @@
 /data/large_files/
 /phylosen_venv/
+# Local, client-specific agent files (AGENTS.md is the committed canonical file)
 /CLAUDE.md
 /MEMORY.md
-/AGENTS.md
 .claude/
