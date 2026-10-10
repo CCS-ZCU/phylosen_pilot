@@ -8,10 +8,13 @@ Unlike PCA/UMAP/t-SNE (unsupervised), LDA uses sense labels to find directions t
 best distinguish between word senses - crucial for ERC proposal visualizations.
 """
 
+import json
+from dataclasses import dataclass
+
 import numpy as np
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import silhouette_score
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Union
 
 
 class LDAProjection:
@@ -214,3 +217,141 @@ def compare_projections(
     sil_unsup = silhouette_score(X_unsup, y)
     
     return sil_lda, sil_unsup
+
+
+# =============================================================================
+# Hybrid discriminative-dimension selection (cross-corpus)
+# =============================================================================
+#
+# Motivation
+# ----------
+# LDA fitted separately on two lexemes (e.g. passio and pathos) each provides a
+# ranking of the *original* embedding dimensions by how much they contribute to
+# separating that lexeme's senses. Combining the two rankings yields a compact,
+# sense-aware subspace that is informative for *both* lexemes.
+#
+# By default we take the **union** of each corpus' top-k dims ("include both"),
+# which keeps every discriminative signal and guarantees at most 2*k dimensions;
+# the intersection is still reported as a diagnostic.
+
+def compute_top_dims(lda_model: Union['LDAProjection', LinearDiscriminantAnalysis],
+                     k: int = 10) -> np.ndarray:
+    """
+    Return indices of the top-k most discriminative original dimensions.
+
+    Accepts either a fitted :class:`LDAProjection` wrapper or a raw
+    ``sklearn`` ``LinearDiscriminantAnalysis`` instance.
+
+    Parameters
+    ----------
+    lda_model : LDAProjection or LinearDiscriminantAnalysis
+        A fitted LDA model (must expose ``scalings_``).
+    k : int
+        Number of dimensions to return (capped at ``n_features``).
+
+    Returns
+    -------
+    top_indices : np.ndarray, shape (k,)
+        Dimension indices sorted by importance (descending).
+    """
+    model = getattr(lda_model, 'model', lda_model)
+    if model is None or not hasattr(model, 'scalings_'):
+        raise ValueError("LDA model is not fitted (missing 'scalings_').")
+    importances = np.abs(model.scalings_).sum(axis=1)
+    k = min(k, len(importances))
+    return np.argsort(importances)[-k:][::-1]
+
+
+@dataclass
+class HybridDimSelection:
+    """
+    Result of combining per-corpus LDA discriminative dimension rankings.
+
+    Attributes
+    ----------
+    dims : np.ndarray
+        The selected hybrid dimensions (sorted ascending). Equal to ``union``
+        when ``mode='union'`` and to ``intersection`` when ``mode='intersection'``.
+    topk : dict[str, np.ndarray]
+        Per-corpus top-k indices (ranked, descending importance).
+    intersection : np.ndarray
+        Dimensions shared by every corpus' top-k set.
+    union : np.ndarray
+        Dimensions appearing in at least one corpus' top-k set.
+    k : int
+        The ``k`` used per corpus.
+    mode : str
+        ``'union'`` or ``'intersection'``.
+    """
+    dims: np.ndarray
+    topk: Dict[str, np.ndarray]
+    intersection: np.ndarray
+    union: np.ndarray
+    k: int
+    mode: str
+
+    def __len__(self) -> int:
+        return len(self.dims)
+
+    def as_dict(self) -> Dict:
+        """JSON-serialisable representation."""
+        return {
+            "dims": [int(d) for d in self.dims],
+            "topk": {c: [int(d) for d in v] for c, v in self.topk.items()},
+            "intersection": [int(d) for d in self.intersection],
+            "union": [int(d) for d in self.union],
+            "k": int(self.k),
+            "mode": self.mode,
+        }
+
+
+def compute_hybrid_dims(lda_models: Dict[str, object],
+                        k: int = 10,
+                        mode: str = "union") -> HybridDimSelection:
+    """
+    Combine per-corpus LDA rankings into a hybrid dimension set.
+
+    Parameters
+    ----------
+    lda_models : dict[str, LDAProjection | LinearDiscriminantAnalysis]
+        Mapping ``{corpus_name: fitted_lda}`` (at least two corpora).
+    k : int
+        Number of top dimensions taken from each corpus.
+    mode : {'union', 'intersection'}
+        ``'union'`` (default) keeps dims discriminative for *any* corpus;
+        ``'intersection'`` keeps only dims discriminative for *all* corpora.
+
+    Returns
+    -------
+    HybridDimSelection
+    """
+    if mode not in ("union", "intersection"):
+        raise ValueError("mode must be 'union' or 'intersection'")
+    if len(lda_models) < 2:
+        raise ValueError("Need at least two LDA models to combine.")
+
+    topk = {name: compute_top_dims(model, k=k) for name, model in lda_models.items()}
+    sets = [set(v.tolist()) for v in topk.values()]
+
+    union = np.array(sorted(set().union(*sets)), dtype=int)
+    inter = np.array(sorted(set.intersection(*sets)), dtype=int)
+    dims = union if mode == "union" else inter
+
+    return HybridDimSelection(
+        dims=dims, topk=topk, intersection=inter, union=union, k=k, mode=mode
+    )
+
+
+def select_dims(X: np.ndarray, dims) -> np.ndarray:
+    """Subselect columns ``dims`` from an embedding matrix ``X``."""
+    dims = np.asarray(dims, dtype=int)
+    return X[:, dims]
+
+
+def save_hybrid_dims(selection: HybridDimSelection, path, meta: Optional[Dict] = None) -> None:
+    """Persist a :class:`HybridDimSelection` (plus optional metadata) to JSON."""
+    payload = selection.as_dict()
+    if meta:
+        payload["meta"] = meta
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
