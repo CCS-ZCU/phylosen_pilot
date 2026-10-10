@@ -45,6 +45,47 @@ def get_random_date(row):
         random_date = random_date[0]
     return random_date
 
+
+def build_embedding_matrix(df, spec, method="concat"):
+    """Assemble an embedding matrix from one or several array columns.
+
+    Keeps the projection helpers agnostic to the encoder choice: the best WSD
+    classifiers concatenate two encoders, so ``spec`` may name several columns.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Frame containing the embedding columns.
+    spec : str or sequence of str
+        A single column name, or several to be combined.
+    method : {"concat", "mean"}
+        How to combine several columns. ``"concat"`` (default) horizontally
+        stacks them (result dim = sum of parts); ``"mean"`` averages them
+        (requires equal dimensionality). Ignored for a single column.
+
+    Returns
+    -------
+    np.ndarray of shape (n_samples, n_dims)
+    """
+    cols = [spec] if isinstance(spec, str) else list(spec)
+    if not cols:
+        raise ValueError("Embedding spec is empty.")
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise KeyError(f"Missing embedding column(s): {missing}")
+
+    mats = [np.stack(df[c].values) for c in cols]
+    if len(mats) == 1:
+        return mats[0]
+    if method == "concat":
+        return np.concatenate(mats, axis=1)
+    if method == "mean":
+        if len({m.shape[1] for m in mats}) != 1:
+            raise ValueError("method='mean' requires equal-dimensional embeddings.")
+        return np.mean(mats, axis=0)
+    raise ValueError(f"Unknown method: {method!r} (use 'concat' or 'mean').")
+
+
 REDUCTIONS = {
     # --- UMAP variants ---
     "umap_10_0.05": lambda: umap.UMAP(n_neighbors=10,  min_dist=0.05,
@@ -679,6 +720,8 @@ def plot_3d_century_trajectories(
     show_legend: bool = True,
     elev: float = 20,
     azim: float = 45,
+    marker: str = 'o',
+    marker_size: Optional[float] = None,
 ) -> plt.Figure:
     """
     Render 3D trajectory plot from pre-computed century trajectory data.
@@ -700,6 +743,8 @@ def plot_3d_century_trajectories(
         panel into a shared figure with a single legend.
     elev, azim : float
         Elevation and azimuth view angles passed to ``ax.view_init``.
+    marker : Matplotlib marker shape, e.g. 'o' for passio or 'x' for pathos.
+    marker_size : Fixed scatter area; None retains count-dependent sizes.
     
     Returns
     -------
@@ -727,6 +772,8 @@ def plot_3d_century_trajectories(
     else:
         ax_owned = False
         fig = ax.figure
+
+    previous_zlim = ax.get_zlim() if not ax_owned and ax.has_data() else None
     
     # Track all data for legend
     legend_handles = []
@@ -744,7 +791,7 @@ def plot_3d_century_trajectories(
         sizes = data['marker_sizes']
         is_valid = data['is_valid']
         
-        if len(centuries) < 2:
+        if len(centuries) == 0:
             continue
         
         color = palette.get(label, '#cccccc')
@@ -804,22 +851,25 @@ def plot_3d_century_trajectories(
         valid_x = [x[i] for i, v in enumerate(is_valid) if v]
         valid_y = [y[i] for i, v in enumerate(is_valid) if v]
         valid_z = [z[i] for i, v in enumerate(is_valid) if v]
-        valid_sizes = [sizes[i] for i, v in enumerate(is_valid) if v]
+        valid_sizes = [sizes[i] if marker_size is None else marker_size
+                       for i, v in enumerate(is_valid) if v]
         
         if valid_x:
             scatter = ax.scatter(
                 valid_x, valid_y, valid_z,
                 c=[color] * len(valid_x),
                 s=valid_sizes,
+                marker=marker,
                 alpha=0.8,
-                edgecolors='white',
-                linewidths=0.5
+                **({'linewidths': 1.5} if marker in ('x', '+') else
+                   {'edgecolors': 'white', 'linewidths': 0.5})
             )
             
             # Create legend handle (only once per label)
             if not any(h.get_label() == label_display for h in legend_handles):
                 legend_handles.append(
-                    Line2D([0], [0], marker='o', color='w', 
+                    Line2D([0], [0], marker=marker, color=color,
+                          linestyle='',
                           label=label_display,
                           markerfacecolor=color, markersize=8)
                 )
@@ -834,7 +884,11 @@ def plot_3d_century_trajectories(
     if all_z:
         z_min, z_max = min(all_z), max(all_z)
         z_padding = 50  # Half a century
-        ax.set_zlim(z_min - z_padding, z_max + z_padding)
+        z_limits = (z_min - z_padding, z_max + z_padding)
+        if previous_zlim is not None:
+            z_limits = (min(z_limits[0], previous_zlim[0]),
+                        max(z_limits[1], previous_zlim[1]))
+        ax.set_zlim(*z_limits)
     
     # Legend
     if show_legend and legend_handles:

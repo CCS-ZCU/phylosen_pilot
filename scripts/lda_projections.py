@@ -147,6 +147,76 @@ def compute_lda_projection(
     return X_2d, lda
 
 
+@dataclass
+class SharedLDAProjection:
+    """A pooled LDA model with the same selected axes for every lexeme."""
+
+    model: LinearDiscriminantAnalysis
+    axes: Tuple[int, int]
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return self.model.transform(X)[:, self.axes]
+
+
+def compute_shared_lda_projection(
+    embeddings: Dict[str, np.ndarray],
+    labels: Dict[str, np.ndarray],
+    axes: Tuple[int, int] = (1, 2),
+) -> Tuple[Dict[str, np.ndarray], SharedLDAProjection]:
+    """Fit one pooled LDA basis to multiple lexemes from the same encoder.
+
+    Classes are distinct (lexeme, sense) pairs: sense 0 in one inventory is
+    never equated with sense 0 in another. Each lexeme receives equal total
+    prior weight, with empirical sense proportions within that lexeme.
+    All embedding dimensions are retained; no per-dimension selection or
+    per-lexeme centering is applied. Inputs must use the same encoder/layer.
+
+    Returns per-lexeme coordinates and the *single* fitted model, which must
+    also be used to project century centroids. This provides a common
+    visualization, not evidence of cross-language alignment or ancestry.
+    ``axes`` selects two zero-based discriminants. The default LD2/LD3 omits
+    LD1, which strongly separates lexemes in the passio/pathos pilot; choose
+    (0, 1) to inspect that separation. SVD uses all embedding dimensions and
+    avoids the poorly separating auto-shrinkage axes observed in this pilot.
+    """
+    if len(embeddings) < 2 or set(embeddings) != set(labels):
+        raise ValueError("Provide matching embedding and label keys for at least two lexemes.")
+
+    matrices, joint_labels, priors = [], [], []
+    feature_count = None
+    next_class = 0
+    for lexeme, values in embeddings.items():
+        X = np.asarray(values, dtype=float)
+        y = np.asarray(labels[lexeme])
+        if X.ndim != 2 or y.ndim != 1 or len(X) != len(y) or len(X) == 0:
+            raise ValueError(f"{lexeme}: expected a nonempty matrix aligned with 1D labels.")
+        if not np.isfinite(X).all():
+            raise ValueError(f"{lexeme}: embeddings must be finite.")
+        if feature_count is not None and X.shape[1] != feature_count:
+            raise ValueError("All lexemes must use the same embedding dimensions.")
+        feature_count = X.shape[1]
+        _, inverse, counts = np.unique(y, return_inverse=True, return_counts=True)
+        if np.any(counts < 2):
+            raise ValueError(f"{lexeme}: each sense needs at least two observations.")
+        matrices.append(X)
+        joint_labels.append(inverse + next_class)
+        priors.extend(counts / len(y) / len(embeddings))
+        next_class += len(counts)
+
+    if (len(axes) != 2 or len(set(axes)) != 2 or
+            any(not isinstance(axis, (int, np.integer)) or axis < 0
+                or axis >= min(feature_count, next_class - 1) for axis in axes)):
+        raise ValueError("axes must select two distinct available discriminants (zero-based).")
+    model = LinearDiscriminantAnalysis(
+        n_components=max(axes) + 1, solver="svd",
+        priors=np.asarray(priors),
+    )
+    model.fit(np.vstack(matrices), np.concatenate(joint_labels))
+    shared = SharedLDAProjection(model=model, axes=tuple(axes))
+    projected = {name: shared.transform(X) for name, X in embeddings.items()}
+    return projected, shared
+
+
 def evaluate_lda_vs_unsupervised(
     X: np.ndarray, 
     y: np.ndarray,
