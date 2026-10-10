@@ -4,8 +4,8 @@ Canonical, tool-neutral guidance for AI agents working in this repository.
 
 `CLAUDE.md` is a **symlink to this file**, so Claude Code and AGENTS.md-aware tools
 (Copilot/VS Code, Codex, opencode, Cursor, Zed, …) read the same content. **Edit this
-file, not the symlink.** Policy (see `.agent-square-src/README.md`): repository rules
-live in `AGENTS.md`; keep client-specific adapters thin.
+file, not the symlink.** Convention + per-client file map:
+`~/.agents/knowledge/agent-docs-convention.md` (Agent Stack).
 
 ## Project overview
 
@@ -36,7 +36,6 @@ Run notebooks via Jupyter/editor **from `scripts/`** (they use `../data/...` pat
 - `data/` — reference data, `embedding_classifier_results.json`, Newick trees (`*.dnd`)
 - `data/large_files/` — large Parquet corpora & samples (git-ignored)
 - `figures/` — output figures
-- `.agent-square-src/` — Agent Stack policy (do not edit)
 
 ## Pipeline notebooks (`scripts/`)
 
