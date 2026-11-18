@@ -197,3 +197,10 @@ Repo rules live here (`AGENTS.md`, committed). Client-specific config stays thin
 local: `CLAUDE.md` is a symlink to this file; `.claude/` is local. Reusable
 cross-project skills/knowledge belong to the Agent Stack (`~/.agents/skills`,
 `~/.agents/knowledge`), not this repo.
+
+## Repository housekeeping
+
+IDE artifacts (`.idea/`, `*.iml`) and Jupyter checkpoints (`.ipynb_checkpoints/`)
+are not tracked. Bulk data and model directories (`large_files/`, `large_data/`)
+are never committed; keep large inputs and outputs there. See the
+[organizer](https://github.com/kasev/organizer) workspace for the shared workflow.
